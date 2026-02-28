@@ -2,6 +2,7 @@ import { Hospital } from "../models/hospitalModel.js";
 import { User } from "../models/userModel.js";
 import jwt from 'jsonwebtoken';
 import { tryCatch } from "./error.js";
+import ErrorHandler from "../utils/utilityClass.js";
 
 
 export const authenticateUser = tryCatch(async (req, res, next) => {

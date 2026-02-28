@@ -9,6 +9,7 @@ import Signup from "./components/home/signup.js";
 import InventoryManagement from "./components/adminDashboard/inventory/inventoryManagement.js";
 import AppointmentPage from "./components/AppointmentPage/appoinmentPage.js";
 import { Outlet } from "react-router-dom";
+import { ToastContainer } from "react-toastify";
 import 'react-toastify/dist/ReactToastify.css';
 import { SidebarPatient } from "./components/sidebar/sidebarPatient.js";
 import OverView from "./components/patientDashboard/overView/OverView.js";
@@ -27,6 +28,7 @@ function NavbarLayout() {
 function App() {
   return (
     <>
+      <ToastContainer position="top-right" autoClose={3000} />
       <Routes>
         <Route element={<NavbarLayout />}>
           <Route path="/" element={<HomePage />} />

@@ -5,7 +5,21 @@ export const errorMiddleware = (err, req, res, next) => {
     err.statusCode = err.statusCode || 500;
 
     if (err.name === 'CastError') {
-        err.message = 'Invalid Id';
+        err.message    = 'Invalid Id';
+        err.statusCode = 400;
+    }
+
+    // Mongoose field validation errors (required, enum, custom validator)
+    if (err.name === 'ValidationError') {
+        err.message    = Object.values(err.errors).map((e) => e.message).join(', ');
+        err.statusCode = 400;
+    }
+
+    // MongoDB duplicate key (unique index violation)
+    if (err.code === 11000) {
+        const field    = Object.keys(err.keyValue ?? {})[0] ?? 'field';
+        err.message    = `${field} already exists`;
+        err.statusCode = 409;
     }
 
     // 5xx errors are bugs — log with full stack. 4xx are operational (bad input,
