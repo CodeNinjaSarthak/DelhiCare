@@ -1,0 +1,59 @@
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      # Named volume — data persists across container restarts and rebuilds.
+      - mongo_data:/data/db
+    # No port mapping intentionally: Mongo is reachable by backend over the
+    # internal Docker network only. Exposing it to the host is a security risk.
+    healthcheck:
+      # mongosh ping: confirms the daemon is accepting connections and the
+      # replica set (if any) has a primary. Lightweight — uses embedded shell.
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Backend ───────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # env_file loads backend/.env — never committed; see backend/.env.example.
+    env_file: ./backend/.env
+    environment:
+      # Override MONGO_URL to use the Docker service name instead of localhost.
+      # The value in .env (if any) is overridden here.
+      MONGO_URL: mongodb://mongo:27017/delhicare
+      NODE_ENV: production
+    ports:
+      # Expose backend directly to the host so browsers can reach it at
+      # http://localhost:4000 when developing without the full compose stack.
+      # In production, remove this and route all traffic through nginx (port 80).
+      - "4000:4000"
+    depends_on:
+      mongo:
+        # Wait for Mongo to pass its healthcheck before starting the backend.
+        # Prevents the "MongoServerSelectionError" crash-loop on cold start.
+        condition: service_healthy
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  # Mongo data outlives the container. Remove this volume explicitly
+  # (docker volume rm delhicare_mongo_data) to wipe the database.
+  mongo_data:

@@ -19,4 +19,7 @@ const bedSchema = new mongoose.Schema({
     timestamps : true,
 });
   
+// Dashboard metrics: occupancy per department
+bedSchema.index({ hospitalId: 1, department: 1, isOccupied: 1 });
+
 export const Bed = mongoose.model("bed",bedSchema);

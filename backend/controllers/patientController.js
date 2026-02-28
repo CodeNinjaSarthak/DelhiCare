@@ -11,6 +11,8 @@ import mongoose from "mongoose";
 
 import { Hospital } from "../models/hospitalModel.js";
 import { WaitingQueue } from "../models/WaitingQueueModel.js";
+import { reEvaluateQueue } from "../services/bedAllocationService.js";
+import { logger } from "../utils/logger.js";
 
 
 // Request bed allotment
@@ -45,57 +47,26 @@ export const requestBedAllotment = tryCatch(async (req, res, next) => {
 });
 
 
-const allocateBedsFromQueue = async () => {
+// Safety-net cron: runs every 5 minutes to catch any beds freed by crashes or
+// other out-of-band events that discharge's event-trigger may have missed.
+// Pre-filters to hospitals that actually have waiting patients — avoids a full
+// bed scan when the queue is empty.
+const runCronAllocation = async () => {
     try {
-        // Find available beds
-        const availableBeds = await Bed.find({ isOccupied: false });
+        const hospitalIds = await WaitingQueue.distinct('hospitalId', { status: 'Waiting' });
+        if (hospitalIds.length === 0) return;
 
-        if (availableBeds.length === 0) {
-            console.log('No available beds currently.');
-            return;
-        }
-
-        // Get all patients in the waiting queue, sorted by priority score
-        const waitingPatients = await WaitingQueue.find({ status: 'Waiting' })
-            .populate('patientId')
-            .sort({ score: -1 });
-
-        for (const patientRecord of waitingPatients) {
-            const patient = patientRecord.patientId;
-
-            // Find the best bed for the patient based on department and availability
-            const suitableBeds = availableBeds.filter(bed => bed.department === patient.department);
-
-            if (suitableBeds.length > 0) {
-                // Allocate the first suitable bed
-                const bestBed = suitableBeds[0];
-                bestBed.isOccupied = true;
-                await bestBed.save();
-
-                // Create a patient admission record
-                await PatientAdmission.create({
-                    hospitalId: new mongoose.Types.ObjectId(bestBed.hospitalId),
-                    patientId: new mongoose.Types.ObjectId(patient._id),
-                    bedId: new mongoose.Types.ObjectId(bestBed._id),
-                    department: patient.department,
-                    status: 'Admitted',
-                    score: patientRecord.score
-                });
-
-                // Remove the patient from the waiting queue
-                await WaitingQueue.findByIdAndDelete(patientRecord._id);
-
-                // Notify the patient (you could send an SMS or other notification here)
-                console.log(`Allocated bed ${bestBed._id} to patient ${patient.name}.`);
-            }
+        for (const hospitalId of hospitalIds) {
+            await reEvaluateQueue(hospitalId, null); // all departments; exits fast if no free beds
         }
     } catch (error) {
-        console.error('Error in allocating beds from queue:', error);
+        logger.error('cron runCronAllocation failed', { error: error.message, stack: error.stack });
     }
 };
 
-// Schedule the task to run every 30 minutes
-cron.schedule('*/30 * * * *', allocateBedsFromQueue);
+// Changed from 30 min to 5 min — with event-triggered discharge, cron is a
+// crash-recovery safety net and should correct orphaned state quickly.
+cron.schedule('*/5 * * * *', runCronAllocation);
 
 export const createPatient = tryCatch(async (req, res, next) => {
     const {

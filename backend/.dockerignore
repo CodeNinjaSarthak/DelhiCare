@@ -1,0 +1,15 @@
+node_modules
+
+# Never bake secrets into the image — supply via docker-compose env_file or secrets.
+.env
+
+# Runtime artefacts — not part of the application.
+logs/
+
+# Test infrastructure — excluded from production image.
+__tests__/
+babel.config.cjs
+jest.config.cjs
+
+# Local dev tooling.
+.gitignore

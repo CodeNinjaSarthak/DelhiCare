@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import ErrorHandler from "../utils/utilityClass.js";
 import {PatientAdmission} from "../models/patientAdmissionModel.js";
 import { Inventory } from "../models/inventoryModel.js";
+import { WaitingQueue } from "../models/WaitingQueueModel.js";
 
 
 
@@ -213,3 +214,113 @@ export const getInventoryData = async (req, res) => {
     res.status(500).json({ message: 'Error fetching inventory data' });
   }
 };
+/**
+ * GET /api/v1/dashboard/metrics?hospitalId=xxx
+ *
+ * Five aggregations run in parallel.
+ * startOfToday scopes all time-based queries to last 24 h to avoid
+ * unbounded scans and historical skew.
+ */
+export const getDashboardMetrics = tryCatch(async (req, res, next) => {
+    const { hospitalId } = req.query;
+    if (!hospitalId) {
+        return next(new ErrorHandler("hospitalId is required", 400));
+    }
+
+    const hospitalObjId = new mongoose.Types.ObjectId(hospitalId);
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [
+        occupancyRaw,
+        queueRaw,
+        admissionsToday,
+        allocTimeRaw,
+        dischargesToday,
+    ] = await Promise.all([
+        // 1. Occupancy per department
+        Bed.aggregate([
+            { $match: { hospitalId: hospitalObjId } },
+            {
+                $group: {
+                    _id: "$department",
+                    total:    { $sum: 1 },
+                    occupied: { $sum: { $cond: ["$isOccupied", 1, 0] } },
+                },
+            },
+        ]),
+
+        // 2. Queue length per department (Waiting only)
+        WaitingQueue.aggregate([
+            { $match: { hospitalId: hospitalObjId, status: 'Waiting' } },
+            { $group: { _id: "$department", count: { $sum: 1 } } },
+        ]),
+
+        // 3. Admissions today
+        PatientAdmission.countDocuments({
+            hospitalId: hospitalObjId,
+            createdAt:  { $gte: startOfToday },
+        }),
+
+        // 4. Average allocation time today (queue → admitted)
+        WaitingQueue.aggregate([
+            {
+                $match: {
+                    hospitalId: hospitalObjId,
+                    status:     'Admitted',
+                    admittedAt: { $ne: null, $gte: startOfToday },
+                },
+            },
+            {
+                $project: {
+                    timeMs: { $subtract: ["$admittedAt", "$createdAt"] },
+                },
+            },
+            {
+                $group: { _id: null, avgMs: { $avg: "$timeMs" } },
+            },
+        ]),
+
+        // 5. Discharges today
+        PatientAdmission.countDocuments({
+            hospitalId:  hospitalObjId,
+            status:      'Discharged',
+            dischargedAt: { $gte: startOfToday },
+        }),
+    ]);
+
+    // Shape occupancy
+    const occupancy = {};
+    for (const row of occupancyRaw) {
+        const available = row.total - row.occupied;
+        occupancy[row._id] = {
+            total:     row.total,
+            occupied:  row.occupied,
+            available,
+            rate:      row.total > 0 ? parseFloat((row.occupied / row.total).toFixed(4)) : 0,
+        };
+    }
+
+    // Shape queue lengths
+    const queueLength = {};
+    for (const row of queueRaw) {
+        queueLength[row._id] = row.count;
+    }
+
+    const avgMs = allocTimeRaw[0]?.avgMs ?? null;
+    const avgAllocationTimeMinutes = avgMs !== null
+        ? parseFloat((avgMs / 60000).toFixed(2))
+        : null;
+
+    return res.status(200).json({
+        success: true,
+        data: {
+            occupancy,
+            queueLength,
+            admissionsToday,
+            avgAllocationTimeMinutes,
+            dischargesToday,
+        },
+    });
+});

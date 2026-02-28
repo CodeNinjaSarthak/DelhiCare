@@ -1,10 +1,9 @@
 import express from "express";
-import { getHospitalStats } from "../controllers/statsController.js";
-
-
-
+import { getHospitalStats, getDashboardMetrics } from "../controllers/statsController.js";
 
 const app = express.Router();
 
-app.get("/bedstats",getHospitalStats);
+app.get("/bedstats", getHospitalStats);
+app.get("/metrics",  getDashboardMetrics);
+
 export default app;

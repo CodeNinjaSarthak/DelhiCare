@@ -1,12 +1,18 @@
-export const calculatePriority = (patient, score) => {
-    const ageScore = 10 - Math.floor(patient.age / 10); // Younger patients get higher scores
-    const severityScore = patient.existingMedicalCondition ? 5 : 0; // Adjust severity scoring logic
-    const emergencyScore = patient.department === 'Emergency' ? 10 : 0;
-    const icuScore = patient.department === 'ICU' ? 10 : 0;
+export const DEFAULT_WEIGHTS = {
+    ageWeight:        1,
+    severityWeight:   1,
+    emergencyWeight:  1,
+    icuWeight:        1,
+    adminScoreWeight: 1,
+};
 
-    // Total score (admin score contributes to the priority)
-    const totalScore = ageScore + severityScore + emergencyScore + icuScore + score;
-    return totalScore;
+export const calculatePriority = (patient, score, weights = DEFAULT_WEIGHTS) => {
+    const ageScore       = (10 - Math.floor(patient.age / 10)) * weights.ageWeight;
+    const severityScore  = (patient.existingMedicalCondition ? 5 : 0) * weights.severityWeight;
+    const emergencyScore = (patient.department === 'Emergency' ? 10 : 0) * weights.emergencyWeight;
+    const icuScore       = (patient.department === 'ICU' ? 10 : 0) * weights.icuWeight;
+    const adminScore     = score * weights.adminScoreWeight;
+    return Math.round(ageScore + severityScore + emergencyScore + icuScore + adminScore);
 };
 
 // Function to get the best available bed

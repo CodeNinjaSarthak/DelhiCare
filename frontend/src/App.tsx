@@ -12,6 +12,7 @@ import { Outlet } from "react-router-dom";
 import 'react-toastify/dist/ReactToastify.css';
 import { SidebarPatient } from "./components/sidebar/sidebarPatient.js";
 import OverView from "./components/patientDashboard/overView/OverView.js";
+import QueuePage from "./components/adminDashboard/bedAllotment/QueuePage";
 
 // Layout for routes with a Navbar
 function NavbarLayout() {
@@ -39,6 +40,7 @@ function App() {
         <Route path="/dashboard" element={<SidebarAdmin />}>
           <Route path="bedAllotment" element={<BedAllotment />} />
           <Route path="inventory" element={<InventoryManagement />} />
+          <Route path="queue" element={<QueuePage />} />
         </Route>
 
         {/* Patient dashboard routes */}

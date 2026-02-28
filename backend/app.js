@@ -1,83 +1,91 @@
 import express from "express";
-import {config} from "dotenv"
+import { config } from "dotenv";
 import { connectDB } from "./config/config.js";
 import { errorMiddleware } from "./middlewares/error.js";
-import hospitalRoutes from "./routes/hospitalRoutes.js"
+import { correlationId } from "./middlewares/correlationId.js";
+import { requestLogger } from "./middlewares/requestLogger.js";
+import { logger } from "./utils/logger.js";
+import { validateEnv } from "./utils/validateEnv.js";
+import hospitalRoutes from "./routes/hospitalRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import bedRoutes from "./routes/bedRoutes.js";
 import statsRoutes from "./routes/statsRoutes.js";
 import inventoryRoutes from "./routes/inventoryRoutes.js";
 import cityRoutes from "./routes/cityRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
-import patientRoutes from "./routes/patientRoutes.js"
-import session from 'express-session';
+import patientRoutes from "./routes/patientRoutes.js";
+import healthRoutes from "./routes/healthRoutes.js";
+import auditRoutes from "./routes/auditRoutes.js";
+import session from "express-session";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import http from 'http';
+import http from "http";
 import { Server } from "socket.io";
 
-
-config({
-    path :"./.env",
-});
+config({ path: "./.env" });
+validateEnv(); // exits with field-level errors if required vars are missing
 
 connectDB();
 
 const port = process.env.PORT || 4000;
 const app = express();
 const server = http.createServer(app);
-export const io = new Server(server,{
-    cors: {
-        origin: 'http://localhost:5173',
-        methods: ['GET', 'POST'],
-        credentials: true,
-    }
-});
-app.use(express.json());
-app.use(cors({
-    origin : "http://localhost:5173",
-    credentials : true,
-}));
-app.use(cookieParser());
 
+export const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:5173",
+        methods: ["GET", "POST"],
+        credentials: true,
+    },
+});
+
+// ── Global middleware ──────────────────────────────────────────────────────────
+// correlationId must come first — requestLogger reads req.requestId.
+app.use(correlationId);
+app.use(requestLogger);
+app.use(express.json());
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(cookieParser());
 app.use(session({
-    secret: 'your-secret-key',
+    secret: "your-secret-key",
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false } // Set to true in production with HTTPS
+    cookie: { secure: false },
 }));
 
+// ── Routes ────────────────────────────────────────────────────────────────────
+app.get("/", (req, res) => res.send("api working"));
 
-app.get('/',(req,res)=>{
-    res.send('api working');
-});
+// Health check — no auth, registered before API routes so it's always reachable.
+app.use("/health", healthRoutes);
 
-app.use('/api/v1/user',userRoutes);
-app.use('/api/v1/bed',bedRoutes);
-app.use('/api/v1/hospital',hospitalRoutes);
-app.use('/api/v1/dashboard',statsRoutes);
-app.use('/api/v1/inventory',inventoryRoutes);
-app.use('/api/v1/patient',patientRoutes);
-app.use('/api/v1/city',cityRoutes);
-app.use('/api/v1/notification',notificationRoutes)
+app.use("/api/v1/user",         userRoutes);
+app.use("/api/v1/bed",          bedRoutes);
+app.use("/api/v1/hospital",     hospitalRoutes);
+app.use("/api/v1/dashboard",    statsRoutes);
+app.use("/api/v1/inventory",    inventoryRoutes);
+app.use("/api/v1/patient",      patientRoutes);
+app.use("/api/v1/city",         cityRoutes);
+app.use("/api/v1/notification", notificationRoutes);
+app.use("/api/v1/audit",        auditRoutes);
 
-
-
+// ── Centralized error handler ─────────────────────────────────────────────────
 app.use(errorMiddleware);
 
+// ── Socket.IO ─────────────────────────────────────────────────────────────────
 io.on("connection", (socket) => {
-    console.log("A user connected");
+    logger.info("socket connected", { socketId: socket.id });
 
-    // Join a room based on hospital ID
     socket.on("joinHospital", (hospitalId) => {
         socket.join(`hospital_${hospitalId}`);
-        console.log(`Socket ${socket.id} joined hospital room ${hospitalId}`);
+        logger.info("socket joined hospital room", { socketId: socket.id, hospitalId });
     });
 
-    // Handle disconnection
     socket.on("disconnect", () => {
-        console.log("A user disconnected");
+        logger.info("socket disconnected", { socketId: socket.id });
     });
 });
 
-server.listen(port,()=>console.log(`server running on http://localhost:${port}`));
+server.listen(port, () =>
+    logger.info(`server running on http://localhost:${port}`)
+);

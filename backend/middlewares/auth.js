@@ -21,7 +21,6 @@ export const authenticateUser = tryCatch(async (req, res, next) => {
         }
         // Attach the user to the request
         req.user = user;
-        console.log("hello");
         next();
     } catch (error) {
         return next(new ErrorHandler("Authorization failed", 401));
